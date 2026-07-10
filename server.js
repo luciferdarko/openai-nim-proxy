@@ -29,7 +29,7 @@ const MODEL_MAPPING = {
   'claude-3-opus': 'openai/gpt-oss-120b',
   'claude-3-sonnet': 'openai/gpt-oss-20b',
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking',
-  'deepseek-v4-pro': :'deepseek-ai/deepseek-v4-pro'
+  'deepseek-v4-pro': 'deepseek-ai/deepseek-v4-pro'
 };
 
 // Health check endpoint
