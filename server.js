@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy
+// server.js - OpenAI to NVIDIA NIM API Proxy (Updated for Roleplay)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -21,16 +21,31 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
 const ENABLE_THINKING_MODE = false; // Set to true to enable chat_template_kwargs thinking parameter
 
-// Model mapping (adjust based on available NIM models)
+// Updated Model Mapping: Top Roleplay & Interactive Creative Models on NVIDIA NIM
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
-  'gpt-4-turbo': 'moonshotai/kimi-k2-instruct-0905',
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1',
-  'claude-3-opus': 'openai/gpt-oss-120b',
-  'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking',
-  'deepseek-v4-pro': 'deepseek-ai/deepseek-v4-pro'
+  // Best Overall for RP (Strong prose, tracks long character cards well)
+  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
+  
+  // Best for Rich Creative Writing & Storytelling (Extremely natural dialogue)
+  'gpt-4': 'mistralai/mistral-large-2407',
+  
+  // Best for Long Context Retention & Complex Plot Logic
+  'gpt-4-turbo': 'qwen/qwen2.5-72b-instruct',
+  
+  // High-performance alternative for heavy worldbuilding
+  'gpt-4o': 'meta/llama-3.1-405b-instruct',
+  
+  // Balanced creative model for expressive dialogue
+  'claude-3-opus': 'meta/llama-3.3-70b-instruct',
+  
+  // Lightweight & ultra-fast for quick interactive chatter
+  'claude-3-sonnet': 'meta/llama-3.1-8b-instruct',
+  
+  // Qwen series fallback for logical dynamic roleplay
+  'gemini-pro': 'qwen/qwen2.5-7b-instruct',
+  
+  // DeepSeek reasoning alternative for complex RPG calculations/rules
+  'deepseek-v4-pro': 'deepseek-ai/deepseek-r1'
 };
 
 // Health check endpoint
@@ -82,11 +97,15 @@ app.post('/v1/chat/completions', async (req, res) => {
       } catch (e) {}
       
       if (!nimModel) {
-        const modelLower = model.toLowerCase();
+        const modelLower = (model || '').toLowerCase();
         if (modelLower.includes('gpt-4') || modelLower.includes('claude-opus') || modelLower.includes('405b')) {
           nimModel = 'meta/llama-3.1-405b-instruct';
+        } else if (modelLower.includes('mistral') || modelLower.includes('large')) {
+          nimModel = 'mistralai/mistral-large-2407';
+        } else if (modelLower.includes('qwen') || modelLower.includes('72b')) {
+          nimModel = 'qwen/qwen2.5-72b-instruct';
         } else if (modelLower.includes('claude') || modelLower.includes('gemini') || modelLower.includes('70b')) {
-          nimModel = 'meta/llama-3.1-70b-instruct';
+          nimModel = 'meta/llama-3.3-70b-instruct';
         } else {
           nimModel = 'meta/llama-3.1-8b-instruct';
         }
@@ -97,8 +116,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     const nimRequest = {
       model: nimModel,
       messages: messages,
-      temperature: temperature || 0.6,
-      max_tokens: max_tokens || 9024,
+      temperature: temperature !== undefined ? temperature : 0.7, // 0.7 is ideal for creative roleplay
+      max_tokens: max_tokens || 4096,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
       stream: stream || false
     };
@@ -216,11 +235,11 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
     
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    console.error('Proxy error:', error.response?.data || error.message);
     
     res.status(error.response?.status || 500).json({
       error: {
-        message: error.message || 'Internal server error',
+        message: error.response?.data?.detail || error.message || 'Internal server error',
         type: 'invalid_request_error',
         code: error.response?.status || 500
       }
