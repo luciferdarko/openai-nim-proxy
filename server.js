@@ -16,36 +16,31 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NIM_API_KEY;
 
 // 🔥 REASONING DISPLAY TOGGLE - Shows/hides reasoning in output
-const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
+const SHOW_REASONING = true; // Helpful for DeepSeek R1 roleplay logic
 
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
-const ENABLE_THINKING_MODE = false; // Set to true to enable chat_template_kwargs thinking parameter
+const ENABLE_THINKING_MODE = true; 
 
 // Updated Model Mapping: Top Roleplay & Interactive Creative Models on NVIDIA NIM
+// Use the short aliases on the left in your frontend (e.g. SillyTavern)
 const MODEL_MAPPING = {
-  // Best Overall for RP (Strong prose, tracks long character cards well)
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
-  
-  // Best for Rich Creative Writing & Storytelling (Extremely natural dialogue)
+  // --- NVIDIA NIM Specific Short Aliases ---
+  'nemotron-70b': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Top tier for RP alignment & character card adherence
+  'llama-3.3-70b': 'meta/llama-3.3-70b-instruct',            // Excellent multi-turn coherence and general RP
+  'llama-405b': 'meta/llama-3.1-405b-instruct',              // Massive context for heavy worldbuilding
+  'llama-8b': 'meta/llama-3.1-8b-instruct',                  // Ultra-fast for quick interactive chatter
+  'mistral-large': 'mistralai/mistral-large-2407',           // Extremely natural, expressive prose & storytelling
+  'qwen-72b': 'qwen/qwen2.5-72b-instruct',                   // Deep logic, context retention, and instruction following
+  'qwen-7b': 'qwen/qwen2.5-7b-instruct',                     // Lightweight Qwen series fallback
+  'deepseek-r1': 'deepseek-ai/deepseek-r1',                  // Complex RPG system logic, stats, and reasoning
+
+  // --- Standard OpenAI / Claude Compatibility Aliases ---
+  'gpt-4o': 'nvidia/llama-3.1-nemotron-70b-instruct',        
+  'gpt-4-turbo': 'meta/llama-3.1-405b-instruct',             
   'gpt-4': 'mistralai/mistral-large-2407',
-  
-  // Best for Long Context Retention & Complex Plot Logic
-  'gpt-4-turbo': 'qwen/qwen2.5-72b-instruct',
-  
-  // High-performance alternative for heavy worldbuilding
-  'gpt-4o': 'meta/llama-3.1-405b-instruct',
-  
-  // Balanced creative model for expressive dialogue
-  'claude-3-opus': 'meta/llama-3.3-70b-instruct',
-  
-  // Lightweight & ultra-fast for quick interactive chatter
-  'claude-3-sonnet': 'meta/llama-3.1-8b-instruct',
-  
-  // Qwen series fallback for logical dynamic roleplay
-  'gemini-pro': 'qwen/qwen2.5-7b-instruct',
-  
-  // DeepSeek reasoning alternative for complex RPG calculations/rules
-  'deepseek-v4-pro': 'deepseek-ai/deepseek-r1'
+  'gpt-3.5-turbo': 'meta/llama-3.1-8b-instruct',
+  'claude-3-5-sonnet': 'meta/llama-3.3-70b-instruct',
+  'claude-3-opus': 'qwen/qwen2.5-72b-instruct'
 };
 
 // Health check endpoint
@@ -96,29 +91,40 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
       } catch (e) {}
       
+      // Fallback router based on keyword matching
       if (!nimModel) {
         const modelLower = (model || '').toLowerCase();
-        if (modelLower.includes('gpt-4') || modelLower.includes('claude-opus') || modelLower.includes('405b')) {
+        if (modelLower.includes('nemotron')) {
+          nimModel = 'nvidia/llama-3.1-nemotron-70b-instruct';
+        } else if (modelLower.includes('deepseek-r1') || modelLower.includes('reasoning')) {
+          nimModel = 'deepseek-ai/deepseek-r1';
+        } else if (modelLower.includes('gpt-4o') || modelLower.includes('405b')) {
           nimModel = 'meta/llama-3.1-405b-instruct';
-        } else if (modelLower.includes('mistral') || modelLower.includes('large')) {
+        } else if (modelLower.includes('mistral') || modelLower.includes('large') || modelLower.includes('gpt-4')) {
           nimModel = 'mistralai/mistral-large-2407';
-        } else if (modelLower.includes('qwen') || modelLower.includes('72b')) {
+        } else if (modelLower.includes('qwen') || modelLower.includes('72b') || modelLower.includes('opus')) {
           nimModel = 'qwen/qwen2.5-72b-instruct';
-        } else if (modelLower.includes('claude') || modelLower.includes('gemini') || modelLower.includes('70b')) {
+        } else if (modelLower.includes('claude') || modelLower.includes('3.3') || modelLower.includes('70b')) {
           nimModel = 'meta/llama-3.3-70b-instruct';
         } else {
-          nimModel = 'meta/llama-3.1-8b-instruct';
+          nimModel = 'meta/llama-3.1-8b-instruct'; // Fast fallback
         }
       }
     }
     
+    // Specifically enable NIM tool calling & reasoning properties for DeepSeek R1
+    let extraBody = undefined;
+    if (ENABLE_THINKING_MODE && nimModel === 'deepseek-ai/deepseek-r1') {
+      extraBody = { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } };
+    }
+
     // Transform OpenAI request to NIM format
     const nimRequest = {
       model: nimModel,
       messages: messages,
-      temperature: temperature !== undefined ? temperature : 0.7, // 0.7 is ideal for creative roleplay
+      temperature: temperature !== undefined ? temperature : 0.85, // 0.85 is often the sweet spot for RP
       max_tokens: max_tokens || 4096,
-      extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
+      extra_body: extraBody,
       stream: stream || false
     };
     
