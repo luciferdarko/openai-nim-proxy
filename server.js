@@ -26,7 +26,7 @@ const ENABLE_THINKING_MODE = true;
 const MODEL_MAPPING = {
   // --- NVIDIA NIM Specific Short Aliases ---
   'nemotron-70b': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Top tier for RP alignment & character card adherence
-  'llama-3.3-70b': 'meta/llama-3.3-70b-instruct',            // Excellent multi-turn coherence and general RP
+  'llama-3.1-70b': 'meta/llama-3.1-70b-instruct',            // Excellent multi-turn coherence and general RP
   'llama-405b': 'meta/llama-3.1-405b-instruct',              // Massive context for heavy worldbuilding
   'llama-8b': 'meta/llama-3.1-8b-instruct',                  // Ultra-fast for quick interactive chatter
   'mistral-large': 'mistralai/mistral-medium-3.5-128b',           // Extremely natural, expressive prose & storytelling
