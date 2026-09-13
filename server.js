@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (Updated for Roleplay)
+// server.js - OpenAI to NVIDIA NIM API Proxy
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -16,31 +16,24 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NIM_API_KEY;
 
 // 🔥 REASONING DISPLAY TOGGLE - Shows/hides reasoning in output
-const SHOW_REASONING = true; // Helpful for DeepSeek R1 roleplay logic
+const SHOW_REASONING = true;
 
-// 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
+// 🔥 THINKING MODE TOGGLE - Enables thinking for models supporting reasoning parameters
 const ENABLE_THINKING_MODE = true; 
 
-// Updated Model Mapping: Top Roleplay & Interactive Creative Models on NVIDIA NIM
-// Use the short aliases on the left in your frontend (e.g. SillyTavern)
+// Model Mapping: Custom list of NVIDIA NIM models & short aliases
 const MODEL_MAPPING = {
-  // --- NVIDIA NIM Specific Short Aliases ---
-  'nemotron-70b': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Top tier for RP alignment & character card adherence
-  'llama-3.1-70b': 'meta/llama-3.1-70b-instruct',            // Excellent multi-turn coherence and general RP
-  'llama-405b': 'meta/llama-3.1-405b-instruct',              // Massive context for heavy worldbuilding
-  'llama-8b': 'meta/llama-3.1-8b-instruct',                  // Ultra-fast for quick interactive chatter
-  'mistral-large': 'mistralai/mistral-medium-3.5-128b',           // Extremely natural, expressive prose & storytelling
-  'qwen-72b': 'qwen/qwen2.5-72b-instruct',                   // Deep logic, context retention, and instruction following
-  'qwen-7b': 'qwen/qwen2.5-7b-instruct',                     // Lightweight Qwen series fallback
-  'deepseek-r1': 'deepseek-ai/deepseek-r1',                  // Complex RPG system logic, stats, and reasoning
+  // Exact model IDs
+  'moonshotai/kimi-k3': 'moonshotai/kimi-k3',
+  'deepseek-ai/deepseek-v4-pro-0813': 'deepseek-ai/deepseek-v4-pro-0813',
+  'mistralai/mistral-nemotron': 'mistralai/mistral-nemotron',
+  'google/gemma-4-31b-it': 'google/gemma-4-31b-it',
 
-  // --- Standard OpenAI / Claude Compatibility Aliases ---
-  'gpt-4o': 'nvidia/llama-3.1-nemotron-70b-instruct',        
-  'gpt-4-turbo': 'meta/llama-3.1-405b-instruct',             
-  'gpt-4': 'mistralai/mistral-large-2407',
-  'gpt-3.5-turbo': 'meta/llama-3.1-8b-instruct',
-  'claude-3-5-sonnet': 'meta/llama-3.3-70b-instruct',
-  'claude-3-opus': 'qwen/qwen2.5-72b-instruct'
+  // Short aliases for frontends (e.g., SillyTavern, Chatbot UI)
+  'kimi-k3': 'moonshotai/kimi-k3',
+  'deepseek-v4': 'deepseek-ai/deepseek-v4-pro-0813',
+  'mistral-nemotron': 'mistralai/mistral-nemotron',
+  'gemma-4-31b': 'google/gemma-4-31b-it'
 };
 
 // Health check endpoint
@@ -91,30 +84,26 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
       } catch (e) {}
       
-      // Fallback router based on keyword matching
+      // Fallback router based on keyword matching across the new models
       if (!nimModel) {
         const modelLower = (model || '').toLowerCase();
-        if (modelLower.includes('nemotron')) {
-          nimModel = 'nvidia/llama-3.1-nemotron-70b-instruct';
-        } else if (modelLower.includes('deepseek-r1') || modelLower.includes('reasoning')) {
-          nimModel = 'deepseek-ai/deepseek-r1';
-        } else if (modelLower.includes('gpt-4o') || modelLower.includes('405b')) {
-          nimModel = 'meta/llama-3.1-405b-instruct';
-        } else if (modelLower.includes('mistral') || modelLower.includes('large') || modelLower.includes('gpt-4')) {
-          nimModel = 'mistralai/mistral-large-2407';
-        } else if (modelLower.includes('qwen') || modelLower.includes('72b') || modelLower.includes('opus')) {
-          nimModel = 'qwen/qwen2.5-72b-instruct';
-        } else if (modelLower.includes('claude') || modelLower.includes('3.3') || modelLower.includes('70b')) {
-          nimModel = 'meta/llama-3.3-70b-instruct';
+        if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
+          nimModel = 'moonshotai/kimi-k3';
+        } else if (modelLower.includes('deepseek')) {
+          nimModel = 'deepseek-ai/deepseek-v4-pro-0813';
+        } else if (modelLower.includes('mistral') || modelLower.includes('nemotron')) {
+          nimModel = 'mistralai/mistral-nemotron';
+        } else if (modelLower.includes('gemma')) {
+          nimModel = 'google/gemma-4-31b-it';
         } else {
-          nimModel = 'meta/llama-3.1-8b-instruct'; // Fast fallback
+          nimModel = 'deepseek-ai/deepseek-v4-pro-0813'; // Default fallback
         }
       }
     }
     
-    // Specifically enable NIM tool calling & reasoning properties for DeepSeek R1
+    // Enable reasoning parameters for DeepSeek if thinking mode is active
     let extraBody = undefined;
-    if (ENABLE_THINKING_MODE && nimModel === 'deepseek-ai/deepseek-r1') {
+    if (ENABLE_THINKING_MODE && nimModel === 'deepseek-ai/deepseek-v4-pro-0813') {
       extraBody = { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } };
     }
 
@@ -122,7 +111,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const nimRequest = {
       model: nimModel,
       messages: messages,
-      temperature: temperature !== undefined ? temperature : 0.85, // 0.85 is often the sweet spot for RP
+      temperature: temperature !== undefined ? temperature : 0.85,
       max_tokens: max_tokens || 4096,
       extra_body: extraBody,
       stream: stream || false
