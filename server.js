@@ -66,55 +66,33 @@ app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
     
-    // Smart model selection with fallback
+    // Resolve model cleanly without firing dummy test requests
     let nimModel = MODEL_MAPPING[model];
     if (!nimModel) {
-      try {
-        await axios.post(`${NIM_API_BASE}/chat/completions`, {
-          model: model,
-          messages: [{ role: 'user', content: 'test' }],
-          max_tokens: 1
-        }, {
-          headers: { 'Authorization': `Bearer ${NIM_API_KEY}`, 'Content-Type': 'application/json' },
-          validateStatus: (status) => status < 500
-        }).then(res => {
-          if (res.status >= 200 && res.status < 300) {
-            nimModel = model;
-          }
-        });
-      } catch (e) {}
-      
-      // Fallback router based on keyword matching across the new models
-      if (!nimModel) {
-        const modelLower = (model || '').toLowerCase();
-        if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
-          nimModel = 'moonshotai/kimi-k3';
-        } else if (modelLower.includes('deepseek')) {
-          nimModel = 'deepseek-ai/deepseek-v4-pro-0813';
-        } else if (modelLower.includes('mistral') || modelLower.includes('nemotron')) {
-          nimModel = 'mistralai/mistral-nemotron';
-        } else if (modelLower.includes('gemma')) {
-          nimModel = 'google/gemma-4-31b-it';
-        } else {
-          nimModel = 'deepseek-ai/deepseek-v4-pro-0813'; // Default fallback
-        }
+      const modelLower = (model || '').toLowerCase();
+      if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
+        nimModel = 'moonshotai/kimi-k3';
+      } else if (modelLower.includes('deepseek')) {
+        nimModel = 'deepseek-ai/deepseek-v4-pro-0813';
+      } else if (modelLower.includes('mistral') || modelLower.includes('nemotron')) {
+        nimModel = 'mistralai/mistral-nemotron';
+      } else if (modelLower.includes('gemma')) {
+        nimModel = 'google/gemma-4-31b-it';
+      } else {
+        nimModel = model || 'deepseek-ai/deepseek-v4-pro-0813';
       }
     }
-    
-    // Enable reasoning parameters for DeepSeek if thinking mode is active
-    let extraBody = undefined;
-    if (ENABLE_THINKING_MODE && nimModel === 'deepseek-ai/deepseek-v4-pro-0813') {
-      extraBody = { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } };
-    }
 
-    // Transform OpenAI request to NIM format
+    // Build NIM request body; chat_template_kwargs must be at the root level
     const nimRequest = {
       model: nimModel,
       messages: messages,
       temperature: temperature !== undefined ? temperature : 0.85,
       max_tokens: max_tokens || 4096,
-      extra_body: extraBody,
-      stream: stream || false
+      stream: stream || false,
+      ...(ENABLE_THINKING_MODE && nimModel.includes('deepseek')
+        ? { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } }
+        : {})
     };
     
     // Make request to NVIDIA NIM API
@@ -127,7 +105,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
     
     if (stream) {
-      // Handle streaming response with reasoning
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -136,57 +113,54 @@ app.post('/v1/chat/completions', async (req, res) => {
       let reasoningStarted = false;
       
       response.data.on('data', (chunk) => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
+        buffer += chunk.toString('utf8');
+        const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() || '';
         
-        lines.forEach(line => {
-          if (line.startsWith('data: ')) {
-            if (line.includes('[DONE]')) {
-              res.write(line + '\n');
-              return;
-            }
-            
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.choices?.[0]?.delta) {
-                const reasoning = data.choices[0].delta.reasoning_content;
-                const content = data.choices[0].delta.content;
+        lines.forEach(rawLine => {
+          const line = rawLine.trim();
+          if (!line || !line.startsWith('data: ')) return;
+
+          if (line.includes('[DONE]')) {
+            res.write(`${line}\n\n`);
+            return;
+          }
+          
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.choices?.[0]?.delta) {
+              const delta = data.choices[0].delta;
+              const reasoning = delta.reasoning_content;
+              const content = delta.content;
+              
+              if (SHOW_REASONING) {
+                let combinedContent = '';
                 
-                if (SHOW_REASONING) {
-                  let combinedContent = '';
-                  
-                  if (reasoning && !reasoningStarted) {
-                    combinedContent = '<think>\n' + reasoning;
-                    reasoningStarted = true;
-                  } else if (reasoning) {
-                    combinedContent = reasoning;
-                  }
-                  
-                  if (content && reasoningStarted) {
-                    combinedContent += '</think>\n\n' + content;
-                    reasoningStarted = false;
-                  } else if (content) {
-                    combinedContent += content;
-                  }
-                  
-                  if (combinedContent) {
-                    data.choices[0].delta.content = combinedContent;
-                    delete data.choices[0].delta.reasoning_content;
-                  }
-                } else {
-                  if (content) {
-                    data.choices[0].delta.content = content;
-                  } else {
-                    data.choices[0].delta.content = '';
-                  }
-                  delete data.choices[0].delta.reasoning_content;
+                if (reasoning && !reasoningStarted) {
+                  combinedContent = '<think>\n' + reasoning;
+                  reasoningStarted = true;
+                } else if (reasoning) {
+                  combinedContent = reasoning;
                 }
+                
+                if (content && reasoningStarted) {
+                  combinedContent += '</think>\n\n' + content;
+                  reasoningStarted = false;
+                } else if (content) {
+                  combinedContent += content;
+                }
+                
+                if (combinedContent) {
+                  delta.content = combinedContent;
+                }
+              } else {
+                delta.content = content || '';
               }
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-            } catch (e) {
-              res.write(line + '\n');
+              delete delta.reasoning_content;
             }
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          } catch (e) {
+            // Drop incomplete/malformed chunks safely
           }
         });
       });
@@ -197,7 +171,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         res.end();
       });
     } else {
-      // Transform NIM response to OpenAI format with reasoning
+      // Transform NIM non-stream response to standard OpenAI format
       const openaiResponse = {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
