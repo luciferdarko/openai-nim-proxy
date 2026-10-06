@@ -25,15 +25,15 @@ const ENABLE_THINKING_MODE = true;
 const MODEL_MAPPING = {
   // Exact model IDs
   'moonshotai/kimi-k3': 'moonshotai/kimi-k3',
-  'deepseek-ai/deepseek-v4-pro-0813': 'deepseek-ai/deepseek-v4-pro-0813',
-  'mistralai/mistral-nemotron': 'mistralai/mistral-nemotron',
   'google/gemma-4-31b-it': 'google/gemma-4-31b-it',
+  'z-ai/glm-5.3': 'z-ai/glm-5.3',
+  'meta/muse-glimmer-30b': 'meta/muse-glimmer-30b',
 
-  // Short aliases for frontends (e.g., SillyTavern, Chatbot UI)
+  // Short aliases for frontends (JanitorAI, SillyTavern, etc.)
   'kimi-k3': 'moonshotai/kimi-k3',
-  'deepseek-v4': 'deepseek-ai/deepseek-v4-pro-0813',
-  'mistral-nemotron': 'mistralai/mistral-nemotron',
-  'gemma-4-31b': 'google/gemma-4-31b-it'
+  'gemma-4-31b': 'google/gemma-4-31b-it',
+  'glm-5.3': 'z-ai/glm-5.3',
+  'muse-glimmer-30b': 'meta/muse-glimmer-30b'
 };
 
 // Health check endpoint
@@ -65,32 +65,28 @@ app.get('/v1/models', (req, res) => {
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-    
-    // Resolve model cleanly without firing dummy test requests
-    let nimModel = MODEL_MAPPING[model];
-    if (!nimModel) {
-      const modelLower = (model || '').toLowerCase();
-      if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
-        nimModel = 'moonshotai/kimi-k3';
-      } else if (modelLower.includes('deepseek')) {
-        nimModel = 'deepseek-ai/deepseek-v4-pro-0813';
-      } else if (modelLower.includes('mistral') || modelLower.includes('nemotron')) {
-        nimModel = 'mistralai/mistral-nemotron';
-      } else if (modelLower.includes('gemma')) {
-        nimModel = 'google/gemma-4-31b-it';
-      } else {
-        nimModel = model || 'deepseek-ai/deepseek-v4-pro-0813';
-      }
-    }
 
-    // Build NIM request body; chat_template_kwargs must be at the root level
+    if (!model) {
+      return res.status(400).json({
+        error: {
+          message: 'Model parameter is required.',
+          type: 'invalid_request_error',
+          code: 400
+        }
+      });
+    }
+    
+    // Resolve alias if mapped; otherwise, directly use the exact model path passed from JanitorAI
+    const nimModel = MODEL_MAPPING[model] || model;
+
+    // Build NIM request body
     const nimRequest = {
       model: nimModel,
       messages: messages,
       temperature: temperature !== undefined ? temperature : 0.85,
       max_tokens: max_tokens || 4096,
       stream: stream || false,
-      ...(ENABLE_THINKING_MODE && nimModel.includes('deepseek')
+      ...(ENABLE_THINKING_MODE
         ? { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } }
         : {})
     };
