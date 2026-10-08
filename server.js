@@ -19,7 +19,7 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = true;
 
 // 🔥 THINKING MODE TOGGLE - Enables thinking for models supporting reasoning parameters
-const ENABLE_THINKING_MODE = true; 
+const ENABLE_THINKING_MODE = false; 
 
 // Model Mapping: Custom list of NVIDIA NIM models & short aliases
 const MODEL_MAPPING = {
