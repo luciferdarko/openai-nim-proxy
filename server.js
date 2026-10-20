@@ -16,12 +16,12 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NIM_API_KEY;
 
 // 🔥 REASONING DISPLAY TOGGLE - Shows/hides reasoning in output
-const SHOW_REASONING = false;
+const SHOW_REASONING = true;
 
-// 🔥 THINKING MODE TOGGLE - Disabled to prevent models from generating hidden thought tokens
+// 🔥 THINKING MODE TOGGLE - Enables thinking for models supporting reasoning parameters
 const ENABLE_THINKING_MODE = false; 
 
-// Default token limit used when JanitorAI passes 0, null, or undefined
+// Default token budget if JanitorAI sends 0, null, or undefined
 const DEFAULT_MAX_TOKENS = 8192;
 
 // Model Mapping: Custom list of NVIDIA NIM models & short aliases
@@ -45,8 +45,7 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     service: 'OpenAI to NVIDIA NIM Proxy', 
     reasoning_display: SHOW_REASONING,
-    thinking_mode: ENABLE_THINKING_MODE,
-    default_max_tokens: DEFAULT_MAX_TOKENS
+    thinking_mode: ENABLE_THINKING_MODE
   });
 });
 
@@ -80,12 +79,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
     }
     
-    // Resolve alias if mapped; otherwise, use exact model path
+    // Resolve alias if mapped; otherwise, directly use the exact model path passed from JanitorAI
     const nimModel = MODEL_MAPPING[model] || model;
 
-    // Sanitize max_tokens (handles 0, null, negative values, and alternative field names)
-    const rawTokens = Number(max_tokens ?? max_completion_tokens);
-    const resolvedMaxTokens = (!rawTokens || rawTokens <= 0) ? DEFAULT_MAX_TOKENS : rawTokens;
+    // Handle token limits: JanitorAI often sends 0, null, or uses max_completion_tokens
+    const requestedTokens = Number(max_tokens || max_completion_tokens);
+    const resolvedMaxTokens = (!requestedTokens || requestedTokens <= 0) 
+      ? DEFAULT_MAX_TOKENS 
+      : requestedTokens;
 
     // Build NIM request body
     const nimRequest = {
@@ -94,9 +95,9 @@ app.post('/v1/chat/completions', async (req, res) => {
       temperature: temperature !== undefined ? temperature : 0.85,
       max_tokens: resolvedMaxTokens,
       stream: stream || false,
-      chat_template_kwargs: {
-        enable_thinking: false
-      }
+      ...(ENABLE_THINKING_MODE
+        ? { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } }
+        : {})
     };
     
     // Make request to NVIDIA NIM API
@@ -236,5 +237,4 @@ app.listen(PORT, () => {
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Reasoning display: ${SHOW_REASONING ? 'ENABLED' : 'DISABLED'}`);
   console.log(`Thinking mode: ${ENABLE_THINKING_MODE ? 'ENABLED' : 'DISABLED'}`);
-  console.log(`Default max tokens: ${DEFAULT_MAX_TOKENS}`);
 });
